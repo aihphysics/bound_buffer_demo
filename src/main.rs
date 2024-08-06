@@ -183,7 +183,7 @@ fn main() {
     for _ in 0..2000 {
       let val = gauss.sample( &mut rng );
       //println!( "g1: {val}" );
-      //thread::sleep(time::Duration::from_millis(4) );
+      thread::sleep(time::Duration::from_millis(1) );
       gauss_buff1.queue( val );
     }
   });
@@ -194,7 +194,7 @@ fn main() {
     for _ in 0..2000 {
       let val = gauss.sample( &mut rng );
       //println!( "g2: {val}" );
-      //thread::sleep(time::Duration::from_millis(4) );
+      thread::sleep(time::Duration::from_millis(1) );
       gauss_buff2.queue( val );
     }
   });
@@ -207,7 +207,7 @@ fn main() {
       //println!( "dq: {val}" );
       let bin = hist.fill( val );
       hist.draw( bin );
-      //thread::sleep(time::Duration::from_millis(10) );
+      thread::sleep(time::Duration::from_millis(5) );
     }
   });
 
