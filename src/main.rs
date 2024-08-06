@@ -1,10 +1,11 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::collections::vec_deque::VecDeque;
-use std::ops::{ Deref, DerefMut };
 use std::time::Duration;
 use std::thread;
 
+use rand::Rng;
 
+#[derive(Copy, Clone)]
 struct Gaussian {
   a: f32,
   mu: f32,
@@ -35,7 +36,7 @@ impl BoundBuffer {
         }
     }
 
-    fn queue( &mut self, val: f32 ) ->(){
+    fn queue( &self, val: f32 ) ->(){
 
       // check buffer readiness (has space)
       let ( lock_add, cv_add )  = &*self.add;
@@ -58,7 +59,7 @@ impl BoundBuffer {
       
     }
 
-    fn dequeue( &mut self ) -> f32 {
+    fn dequeue( &self ) -> f32 {
 
       // check buffer readiness (has entries)
       let ( lock_remove, cv_remove )  = &*self.remove;
@@ -90,22 +91,39 @@ impl BoundBuffer {
 fn main() {
 
       
-  let bb = Arc::new( IMut{bb:BoundBuffer::new( 30 ) } );
-  let buff1= Arc::clone( &bb );
-  let buff2= Arc::clone( &bb );
+  let bb = Arc::new( BoundBuffer::new( 30 ) );
+  let gauss_buff1= Arc::clone( &bb );
+  let gauss_buff2= Arc::clone( &bb );
+  let write_buff= Arc::clone( &bb );
 
   let gauss1 = thread::spawn( move || {
     let gauss = Gaussian{ a: 10f32, mu: 0f32, sigma: 10f32 };
-    buff1.queue( gauss.value( 4.0 ) );
+    let mut rng = rand::thread_rng();
+    for _ in 0..1000 {
+      let val = gauss.value( rng.gen_range(0.0..30.0) );
+      gauss_buff1.queue( val );
+    }
   });
 
   let gauss2 = thread::spawn( move || {
+    let mut rng = rand::thread_rng();
     let gauss = Gaussian{ a: 10f32, mu: 0f32, sigma: 10f32 };
-    //buff2.queue( gauss.value( 4.0 ) );
+    for _ in 0..1000 {
+      let val = gauss.value( rng.gen_range(0.0..30.0) );
+      gauss_buff2.queue( val );
+    }
   });
+
+
+  let writer = thread::spawn( move || {
+    let val = write_buff.dequeue();
+    //plot( val );
+  });
+
 
   gauss1.join().unwrap();
   gauss2.join().unwrap();
+  writer.join().unwrap();
   
 
 }
