@@ -1,11 +1,13 @@
+use rand::Rng;
 use std::collections::vec_deque::VecDeque;
 use std::io::{stdout, Write};
 use std::sync::{Arc, Condvar, Mutex};
-use std::{thread, time};
+use std::thread;
+use std::thread::JoinHandle;
 
+use clap::{command, Parser};
 use rand_distr::{Distribution, Normal};
-//use termion::raw::IntoRawMode;
-use termion::{color, cursor};
+use termion::color;
 
 struct BoundBuffer {
     size: usize,
@@ -30,15 +32,15 @@ impl BoundBuffer {
         let mut ready_add = lock_add.lock().unwrap();
         let buff = self.buffer.lock().unwrap();
 
-        let mut stdout = stdout();
-        write!(
-            stdout,
-            "{}Len @ queue: {}",
-            termion::cursor::Goto(1, 31),
-            buff.len()
-        )
-        .unwrap();
-        stdout.flush().unwrap();
+        //let mut stdout = stdout();
+        //write!(
+        //    stdout,
+        //    "{}Len @ queue: {}",
+        //    termion::cursor::Goto(1, 31),
+        //    buff.len()
+        //)
+        //.unwrap();
+        //stdout.flush().unwrap();
 
         if buff.len() >= self.size {
             *ready_add = false;
@@ -78,16 +80,15 @@ impl BoundBuffer {
         if buff.is_empty() {
             *ready_remove = false;
         }
-
-        let mut stdout = stdout();
-        write!(
-            stdout,
-            "{}Len @ dequeue: {}",
-            termion::cursor::Goto(1, 32),
-            buff.len()
-        )
-        .unwrap();
-        stdout.flush().unwrap();
+        //let mut stdout = stdout();
+        //write!(
+        //    stdout,
+        //    "{}Len @ dequeue: {}",
+        //    termion::cursor::Goto(1, 32),
+        //    buff.len()
+        //)
+        //.unwrap();
+        //stdout.flush().unwrap();
         std::mem::drop(buff);
 
         // thread wait until ready
@@ -118,6 +119,17 @@ impl BoundBuffer {
     }
 }
 
+impl Clone for BoundBuffer {
+    fn clone(&self) -> BoundBuffer {
+        BoundBuffer {
+            size: self.size,
+            buffer: self.buffer.clone(),
+            add: self.add.clone(),
+            remove: self.remove.clone(),
+        }
+    }
+}
+
 struct Histogram {
     bins: usize,
     lower: f32,
@@ -125,6 +137,9 @@ struct Histogram {
     max: f32,
     counts: Vec<u32>,
     entries: usize,
+    height: usize,
+    width: usize,
+    x_pad: usize,
 }
 
 /// Histogram/draw class for the process
@@ -150,7 +165,67 @@ impl Histogram {
             max,
             counts: vec![0u32; bins as usize],
             entries: 0usize,
+            width: bins as usize,
+            height: (bins / 2) as usize,
+            x_pad: 10,
+            //y_pad: 0
         }
+    }
+
+    fn draw_pad(&self) {
+        let mut stdout = stdout();
+
+        for x in 0..self.width {
+            for y in 0..self.height {
+                write!(
+                    stdout,
+                    "{}{}{}▄{}{}",
+                    termion::cursor::Goto((x + self.x_pad) as u16, (self.height - y) as u16),
+                    color::Fg(color::Rgb(0u8, 0u8, 0u8)),
+                    color::Bg(color::Rgb(0u8, 0u8, 0u8)),
+                    color::Fg(color::Reset),
+                    color::Bg(color::Reset),
+                )
+                .unwrap();
+            }
+        }
+        write!(
+            stdout,
+            "{}{}",
+            termion::cursor::Goto(3, 1),
+            f32::floor(self.max) as u16
+        )
+        .unwrap();
+        write!(
+            stdout,
+            "{}{}",
+            termion::cursor::Goto(3, f32::floor(self.height as f32 * 0.25) as u16),
+            self.max * 0.75
+        )
+        .unwrap();
+        write!(
+            stdout,
+            "{}{}",
+            termion::cursor::Goto(3, f32::floor(self.height as f32 * 0.5) as u16),
+            self.max * 0.5
+        )
+        .unwrap();
+        write!(
+            stdout,
+            "{}{}",
+            termion::cursor::Goto(3, f32::floor(self.height as f32 * 0.75) as u16),
+            self.max * 0.25
+        )
+        .unwrap();
+        write!(
+            stdout,
+            "{}{}",
+            termion::cursor::Goto(3, f32::floor(self.height as f32) as u16),
+            0
+        )
+        .unwrap();
+
+        stdout.flush().unwrap();
     }
 
     // increments the bin that is to be filled, returns bin index
@@ -206,7 +281,7 @@ impl Histogram {
         write!(
             stdout,
             "{}{}{}▄{}{}{}",
-            termion::cursor::Goto(2 + bin as u16 + 1, 30-(z_idx as u16 + 1)),
+            termion::cursor::Goto(self.x_pad as u16 + bin as u16 - 1, 30 - (z_idx as u16)),
             color::Fg(color::Rgb(fg, fg, fg)),
             color::Bg(color::Rgb(bg, bg, bg)),
             color::Fg(color::Reset),
@@ -226,47 +301,71 @@ impl Histogram {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+pub struct Args {
+    /// Buffer size
+    #[arg(short = 'b', long = "buffsize", default_value_t = 100u8)]
+    pub buffer_size: u8,
+
+    /// Number of threads/producers
+    #[arg(short = 'n', long = "producers", default_value_t = 6usize)]
+    pub producers: usize,
+
+    /// Producer delay in ms
+    #[arg(short = 'd', long = "delay", default_value_t = 2u64)]
+    pub delay: u64,
+
+    /// samples per producer
+    #[arg(short = 's', long = "samples", default_value_t = 2000)]
+    pub samples: usize,
+}
+
 fn main() {
+    let args = Args::parse();
+
+    let buffer_size = args.buffer_size;
+    let producers = args.producers;
+    let delay = args.delay;
+    let samples = args.samples;
+
+    let iterations = producers * samples;
+
     // clear up before we begin
     print!("{}", termion::clear::All);
 
-    let bb = Arc::new(BoundBuffer::new(200));
-    let gauss_buff1 = Arc::clone(&bb);
-    let gauss_buff2 = Arc::clone(&bb);
-    let write_buff = Arc::clone(&bb);
+    let bound_buffer = Arc::new(BoundBuffer::new(buffer_size));
 
-    let gauss1 = thread::spawn(move || {
-        let mut rng = rand::thread_rng();
-        let gauss = Normal::new(5.0, 3.0).unwrap();
-        for _ in 0..2000 {
-            let val = gauss.sample(&mut rng);
-            gauss_buff1.queue(val);
-        }
-    });
+    let mut handles: Vec<JoinHandle<()>> = Vec::with_capacity(producers);
 
-    let gauss2 = thread::spawn(move || {
-        let mut rng = rand::thread_rng();
-        let gauss = Normal::new(40.0, 1.0).unwrap();
-        for _ in 0..2000 {
-            let val = gauss.sample(&mut rng);
-            gauss_buff2.queue(val);
-        }
-    });
+    for _ in 0..producers {
+        let production_buffer = bound_buffer.clone();
+        handles.push(thread::spawn(move || {
+            let mut rng = rand::thread_rng();
+            let gauss = Normal::new(rng.gen_range(0f32..60f32), rng.gen_range(1f32..5f32)).unwrap();
+            for _ in 0..samples {
+                let val = gauss.sample(&mut rng);
+                production_buffer.queue(val);
+            }
+        }))
+    }
 
-
+    let write_buff = bound_buffer.clone();
     let writer = thread::spawn(move || {
         let mut hist: Histogram = Histogram::new(60, 0f32, 60f32, 1000f32);
-        for _ in 0..4000 {
+        hist.draw_pad();
+        for _ in 0..iterations {
             let val = write_buff.dequeue();
             let bin = hist.fill(val);
             hist.draw(bin);
-            //thread::sleep( std::time::Duration::from_millis(10) );
+            thread::sleep(std::time::Duration::from_millis(delay));
         }
     });
 
-    gauss2.join().unwrap();
-    gauss1.join().unwrap();
     writer.join().unwrap();
+    for handle in handles {
+        handle.join().unwrap()
+    }
 
     println!("\nIteration finished");
 }
