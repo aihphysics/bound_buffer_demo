@@ -192,12 +192,12 @@ impl Histogram {
         let brightness = z - f32::floor(z);
 
         let fg: u8 = if brightness > 0.5 {
-            ((brightness - 0.5f32) * 255.0f32) as u8
+            255u8
         } else {
-            0u8
+            ((brightness) * 255.0f32) as u8
         };
         let bg: u8 = if brightness > 0.5 {
-            ((brightness - 0.5f32) * 255.0f32) as u8
+            ((brightness) * 255.0f32) as u8
         } else {
             0u8
         };
@@ -206,7 +206,7 @@ impl Histogram {
         write!(
             stdout,
             "{}{}{}▄{}{}{}",
-            termion::cursor::Goto(bin as u16 + 1, z_idx as u16 + 1),
+            termion::cursor::Goto(2 + bin as u16 + 1, 30-(z_idx as u16 + 1)),
             color::Fg(color::Rgb(fg, fg, fg)),
             color::Bg(color::Rgb(bg, bg, bg)),
             color::Fg(color::Reset),
@@ -230,7 +230,7 @@ fn main() {
     // clear up before we begin
     print!("{}", termion::clear::All);
 
-    let bb = Arc::new(BoundBuffer::new(10));
+    let bb = Arc::new(BoundBuffer::new(200));
     let gauss_buff1 = Arc::clone(&bb);
     let gauss_buff2 = Arc::clone(&bb);
     let write_buff = Arc::clone(&bb);
@@ -240,35 +240,27 @@ fn main() {
         let gauss = Normal::new(5.0, 3.0).unwrap();
         for _ in 0..2000 {
             let val = gauss.sample(&mut rng);
-            //println!( "g1: {val}" );
-            //thread::sleep(time::Duration::from_millis(1));
             gauss_buff1.queue(val);
         }
     });
 
     let gauss2 = thread::spawn(move || {
         let mut rng = rand::thread_rng();
-        let gauss = Normal::new(20.0, 6.0).unwrap();
+        let gauss = Normal::new(40.0, 1.0).unwrap();
         for _ in 0..2000 {
             let val = gauss.sample(&mut rng);
-            //println!( "g2: {val}" );
-            //thread::sleep(time::Duration::from_millis(1));
             gauss_buff2.queue(val);
         }
     });
 
-    //thread::sleep(time::Duration::from_millis(100));
-    // we reach dequeue on an empty queue and it locks?
 
     let writer = thread::spawn(move || {
         let mut hist: Histogram = Histogram::new(60, 0f32, 60f32, 1000f32);
         for _ in 0..4000 {
             let val = write_buff.dequeue();
-            //println!( "dq: {val}" );
             let bin = hist.fill(val);
             hist.draw(bin);
-            // we still deadlock without the wait
-            //thread::sleep(time::Duration::from_millis(5));
+            //thread::sleep( std::time::Duration::from_millis(10) );
         }
     });
 
