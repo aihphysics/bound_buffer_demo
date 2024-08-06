@@ -1,23 +1,7 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::collections::vec_deque::VecDeque;
-use std::time::Duration;
-use std::thread;
-
-use rand::Rng;
-
-#[derive(Copy, Clone)]
-struct Gaussian {
-  a: f32,
-  mu: f32,
-  sigma: f32,
-}
-
-impl Gaussian {
-  fn value( self, x: f32 ) -> f32 {
-    return self.a * f32::powf( -0.5 * f32::powf((x - self.mu ) / self.sigma, 2.0), std::f32::consts::E )
-  }
-}
-
+use std::{thread, time};
+use rand_distr::{ Distribution, Normal };
 
 struct BoundBuffer {
     size: usize,
@@ -40,47 +24,52 @@ impl BoundBuffer {
 
       // check buffer readiness (has space)
       let ( lock_add, cv_add )  = &*self.add;
-      let mut ready = lock_add.lock().unwrap();
-      let mut buff = self.buffer.lock().unwrap();
-      if buff.len() == self.size { *ready = false; } 
+      let mut ready_add = lock_add.lock().unwrap();
+      let buff = self.buffer.lock().unwrap();
+      if buff.len() == self.size { *ready_add = false; } 
+      std::mem::drop(buff);
     
-      // thread wait until ready
-      while !*ready {
-        ready = cv_add.wait( ready ).unwrap();
+      // thread wait until ready to add
+      while !*ready_add {
+        //println!("wait queue");
+        ready_add = cv_add.wait( ready_add ).unwrap();
       }
 
       // push to buffer 
+      let mut buff = self.buffer.lock().unwrap();
       buff.push_back( val );
 
       // update state and notify
       let ( lock_remove, cv_remove )  = &*self.remove;
-      *lock_remove.lock().unwrap() = true;
-      cv_remove.notify_all();
+      let mut ready_remove = lock_remove.lock().unwrap();
+      *ready_remove = true;
+      cv_remove.notify_one();
       
     }
 
     fn dequeue( &self ) -> f32 {
 
-      // check buffer readiness (has entries)
+      // check buffer readiness (has entries), explicitly drop
       let ( lock_remove, cv_remove )  = &*self.remove;
-      let mut ready = lock_remove.lock().unwrap();
-      let mut buff = self.buffer.lock().unwrap();
-      if buff.is_empty() { *ready = false; }
+      let mut ready_remove = lock_remove.lock().unwrap();
+      let buff = self.buffer.lock().unwrap();
+      if buff.is_empty() { *ready_remove = false; }
+      cv_remove.notify_all();
+      std::mem::drop(buff);
     
       // thread wait until ready
-      while !*ready {
-        println!("wait dequeue");
-        ready = cv_remove.wait( ready ).unwrap();
+      while !*ready_remove {
+        ready_remove = cv_remove.wait( ready_remove ).unwrap();
       }
 
       // pop from buffer 
+      let mut buff = self.buffer.lock().unwrap();
       let val = buff.pop_front().unwrap();
 
       // update state and notify
       let ( lock_add, cv_add )  = &*self.add;
       *lock_add.lock().unwrap() = true;
-      cv_add.notify_all();
-      if buff.is_empty() { *ready = false; }
+      cv_add.notify_one();
 
       return val;
     }
@@ -91,35 +80,41 @@ impl BoundBuffer {
 fn main() {
 
       
-  let bb = Arc::new( BoundBuffer::new( 30 ) );
+  let bb = Arc::new( BoundBuffer::new( 5 ) );
   let gauss_buff1= Arc::clone( &bb );
   let gauss_buff2= Arc::clone( &bb );
   let write_buff= Arc::clone( &bb );
 
+  
   let gauss1 = thread::spawn( move || {
-    let gauss = Gaussian{ a: 10f32, mu: 0f32, sigma: 10f32 };
     let mut rng = rand::thread_rng();
+    let gauss = Normal::new( 2.0, 3.0 ).unwrap();
     for _ in 0..1000 {
-      let val = gauss.value( rng.gen_range(0.0..30.0) );
+      let val = gauss.sample( &mut rng );
+      //println!( "g1: {val}" );
+      thread::sleep(time::Duration::from_millis(25) );
       gauss_buff1.queue( val );
     }
   });
 
   let gauss2 = thread::spawn( move || {
     let mut rng = rand::thread_rng();
-    let gauss = Gaussian{ a: 10f32, mu: 0f32, sigma: 10f32 };
+    let gauss = Normal::new( 6.0, 6.0 ).unwrap();
     for _ in 0..1000 {
-      let val = gauss.value( rng.gen_range(0.0..30.0) );
+      let val = gauss.sample( &mut rng );
+      //println!( "g2: {val}" );
+      thread::sleep(time::Duration::from_millis(25) );
       gauss_buff2.queue( val );
     }
   });
 
-
   let writer = thread::spawn( move || {
-    let val = write_buff.dequeue();
-    //plot( val );
+    for _ in 0..1000 {
+      let val = write_buff.dequeue();
+      //println!( "dq: {val}" );
+      thread::sleep(time::Duration::from_millis(100) );
+    }
   });
-
 
   gauss1.join().unwrap();
   gauss2.join().unwrap();
