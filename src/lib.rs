@@ -1,4 +1,4 @@
-//! A c-esque implementation of the [bounded-buffer](https://en.wikipedia.org/wiki/Producer%E2%80%93consumer_problem) paradigm.
+#![doc = include_str!("../readme.md")]
 
 use std::collections::vec_deque::VecDeque;
 use std::io::Stdout;
