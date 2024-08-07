@@ -296,8 +296,8 @@ impl Histogram {
     /// pixels by setting the foreground and background values of this drawn character.
     ///
     /// The canvas is 30 lines tall. The count in a bin of the histogram is mapped from 0..max to
-    /// 0..30.0, the fraction that the count is accross a single bin is used to calculate the
-    /// brightness of relevant character. When the count is more than halfway across the bin, the
+    /// 0..30.0, the fraction that the count is across a single bin is used to calculate the
+    /// brightness of relevant the character. When the count is more than halfway across the bin, the
     /// foreground, corresponding to the lower half of the terminal character is set to white.
     /// The brightness is rescaled to each half-bin.
     ///
