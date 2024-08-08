@@ -3,7 +3,7 @@
 use std::collections::vec_deque::VecDeque;
 use std::io::Stdout;
 use std::io::{stdout, Write};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Condvar, Mutex};
 use termion::color;
 
 /// Bound-buffer struct
@@ -16,9 +16,13 @@ use termion::color;
 /// for dequeuing
 pub struct BoundBuffer<T> {
     size: usize,
-    buffer: Arc<Mutex<VecDeque<T>>>,
-    add: Arc<(Mutex<bool>, Condvar)>,
-    remove: Arc<(Mutex<bool>, Condvar)>,
+    //buffer: Arc<Mutex<VecDeque<T>>>,
+    //add: Arc<(Mutex<bool>, Condvar)>,
+    //remove: Arc<(Mutex<bool>, Condvar)>,
+    buffer: Mutex<VecDeque<T>>,
+    add: (Mutex<bool>, Condvar),
+    remove: (Mutex<bool>, Condvar),
+
 }
 
 impl<T> BoundBuffer<T> {
@@ -26,9 +30,13 @@ impl<T> BoundBuffer<T> {
     pub fn new(size: usize) -> BoundBuffer<T> {
         BoundBuffer::<T> {
             size: size as usize,
-            buffer: Arc::new(Mutex::new(VecDeque::<T>::with_capacity(size as usize))),
-            add: Arc::new((Mutex::new(true), Condvar::new())),
-            remove: Arc::new((Mutex::new(false), Condvar::new())),
+            //buffer: Arc::new(Mutex::new(VecDeque::<T>::with_capacity(size as usize))),
+            //add: Arc::new((Mutex::new(true), Condvar::new())),
+            //remove: Arc::new((Mutex::new(false), Condvar::new())),
+            buffer: Mutex::new(VecDeque::<T>::with_capacity(size as usize)),
+            add: (Mutex::new(true), Condvar::new()),
+            remove: (Mutex::new(false), Condvar::new()),
+
         }
     }
 
@@ -41,7 +49,7 @@ impl<T> BoundBuffer<T> {
     /// readiness checking. Changes are signalled by the condvar.
     pub fn queue(&self, val: T) -> () {
         // check buffer readiness (has space), explicitly drop mutex guard
-        let (lock_add, cv_add) = &*self.add;
+        let (lock_add, cv_add) = &self.add;
         let mut ready_add = lock_add.lock().unwrap();
         let buff = self.buffer.lock().unwrap();
         if buff.len() >= self.size {
@@ -66,7 +74,7 @@ impl<T> BoundBuffer<T> {
         std::mem::drop(buff);
 
         // update state and notify
-        let (lock_remove, cv_remove) = &*self.remove;
+        let (lock_remove, cv_remove) = &self.remove;
         let mut ready_remove = lock_remove.lock().unwrap();
         *ready_remove = true;
         cv_remove.notify_one();
@@ -82,7 +90,7 @@ impl<T> BoundBuffer<T> {
     /// readiness checking. Changes are signalled by the condvar.
     pub fn dequeue(&self) -> T {
         // check buffer readiness (has entries), explicitly drop mutex guard
-        let (lock_remove, cv_remove) = &*self.remove;
+        let (lock_remove, cv_remove) = &self.remove;
         let mut ready_remove = lock_remove.lock().unwrap();
         let buff = self.buffer.lock().unwrap();
         if buff.is_empty() {
@@ -107,13 +115,13 @@ impl<T> BoundBuffer<T> {
         std::mem::drop(buff);
 
         // update state and notify
-        let (lock_add, cv_add) = &*self.add;
+        let (lock_add, cv_add) = &self.add;
         let mut ready_add = lock_add.lock().unwrap();
         *ready_add = true;
         cv_add.notify_one();
         std::mem::drop(ready_add);
 
-        let (lock_remove, _) = &*self.remove;
+        let (lock_remove, _) = &self.remove;
         let mut ready_remove = lock_remove.lock().unwrap();
         let buff = self.buffer.lock().unwrap();
         if buff.is_empty() {
@@ -125,16 +133,16 @@ impl<T> BoundBuffer<T> {
     }
 }
 
-impl<T> Clone for BoundBuffer<T> {
-    fn clone(&self) -> BoundBuffer<T> {
-        BoundBuffer::<T> {
-            size: self.size,
-            buffer: self.buffer.clone(),
-            add: self.add.clone(),
-            remove: self.remove.clone(),
-        }
-    }
-}
+//impl<T> Clone for BoundBuffer<T> {
+//    fn clone(&self) -> BoundBuffer<T> {
+//        BoundBuffer::<T> {
+//            size: self.size,
+//            buffer: self.buffer.clone(),
+//            add: self.add.clone(),
+//            remove: self.remove.clone(),
+//        }
+//    }
+//}
 
 /// Histogram class for visualising values on the terminal
 ///
@@ -370,11 +378,11 @@ mod tests {
         assert_eq!(b.len(), 0);
         assert_eq!(b.capacity(), 30);
 
-        let addpair = &*bb.add;
+        let addpair = &bb.add;
         let addmutex = addpair.0.lock().unwrap();
         assert!(*addmutex);
 
-        let removepair = &*bb.remove;
+        let removepair = &bb.remove;
         let removemutex = removepair.0.lock().unwrap();
         assert!(!*removemutex);
     }
@@ -390,11 +398,11 @@ mod tests {
         assert_eq!(b.len(), 1);
         assert_eq!(b.capacity(), 30);
 
-        let addpair = &*bb.add;
+        let addpair = &bb.add;
         let addmutex = addpair.0.lock().unwrap();
         assert!(*addmutex);
 
-        let removepair = &*bb.remove;
+        let removepair = &bb.remove;
         let removemutex = removepair.0.lock().unwrap();
         assert!(*removemutex);
     }
@@ -412,11 +420,11 @@ mod tests {
         assert_eq!(b.len(), 0);
         assert_eq!(b.capacity(), 30);
 
-        let addpair = &*bb.add;
+        let addpair = &bb.add;
         let addmutex = addpair.0.lock().unwrap();
         assert!(*addmutex);
 
-        let removepair = &*bb.remove;
+        let removepair = &bb.remove;
         let removemutex = removepair.0.lock().unwrap();
         println!("{}", *removemutex);
         assert!(!*removemutex);

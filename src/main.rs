@@ -5,6 +5,7 @@ use rand::Rng;
 use rand_distr::{Distribution, Normal};
 use std::thread;
 use std::thread::JoinHandle;
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -69,7 +70,7 @@ fn main() {
     print!("{}", termion::clear::All);
 
     // create buffer for sharing between threads
-    let bound_buffer = BoundBuffer::<f32>::new(buffer_size);
+    let bound_buffer = Arc::new(BoundBuffer::<f32>::new(buffer_size));
 
     // collection for storing producer thread handles.
     let mut handles: Vec<JoinHandle<()>> = Vec::with_capacity(producers);
